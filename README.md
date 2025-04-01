@@ -7,7 +7,7 @@
 ### Deploy to AWS
 | Region                | Launch Template                                                                                                                                                                                                                                                                                                             |
 |-----------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
- | US East (N. Virginia) | [![Launch Stack](https://cdn.rawgit.com/buildkite/cloudformation-launch-stack-button-svg/master/launch-stack.svg)](https://console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/new?stackName=video-rag&templateURL=https://github.com/aws-samples/sample-video-rag/blob/main/cft-video-generation-blog.yml) |
+ | US East (N. Virginia) | [![Launch Stack](https://cdn.rawgit.com/buildkite/cloudformation-launch-stack-button-svg/master/launch-stack.svg)](https://console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/new?stackName=video-rag&templateURL=https://raw.githubusercontent.com/aws-samples/sample-video-rag/refs/heads/main/cft-video-generation-blog.yml) |
  
 Note: Nova Reels is only supported in us-east-1
 
