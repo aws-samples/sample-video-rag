@@ -1,0 +1,813 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'CloudFormation template for VRAG'
+
+Parameters:
+  Repository:
+    Type: String
+    Description: Git repository of the project
+    Default: https://github.com/aws-samples/sample-video-rag.git
+
+  NotebookInstanceType:
+    Type: String
+    Default: ml.m5.2xlarge
+    Description: The EC2 instance type for the notebook instance
+
+  VpcCIDR:
+    Type: String
+    Default: 10.0.0.0/16
+    Description: CIDR block for the VPC
+
+  PrivateSubnet1CIDR:
+    Type: String
+    Default: 10.0.1.0/24
+    Description: CIDR block for private subnet 1
+
+  PrivateSubnet2CIDR:
+    Type: String
+    Default: 10.0.2.0/24
+    Description: CIDR block for private subnet 2
+
+  CollectionName:
+    Type: String
+    Description: Name of the OpenSearch Serverless Collection
+    Default: collection
+
+  IndexName:
+    Type: String
+    Description: Name of the OpenSearch Index
+    Default: vrag-index
+
+Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCIDR
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.3.0/24
+      AvailabilityZone: !Select [0, !GetAZs ""]
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  NATGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NATGatewayEIP.AllocationId
+      SubnetId: !Ref PublicSubnet
+
+  NATGatewayEIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref PublicRouteTable
+
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+
+  PrivateRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NATGateway
+
+  PrivateSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet1
+      RouteTableId: !Ref PrivateRouteTable
+
+  PrivateSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet2
+      RouteTableId: !Ref PrivateRouteTable
+
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PrivateSubnet1CIDR
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      Tags:
+        - Key: Name
+          Value: SageMaker-Private-Subnet-1
+
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PrivateSubnet2CIDR
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      Tags:
+        - Key: Name
+          Value: SageMaker-Private-Subnet-2
+
+  # Security Group
+  NotebookSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for SageMaker Notebook instance
+      VpcId: !Ref VPC
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: "Allow HTTPS outbound traffic"
+
+  VPCFlowLog:
+    Type: AWS::EC2::FlowLog
+    Properties:
+      DeliverLogsPermissionArn: !GetAtt VPCFlowLogRole.Arn
+      LogGroupName: !Sub "${AWS::StackName}-VPCFlowLogs"
+      ResourceId: !Ref VPC
+      ResourceType: VPC
+      TrafficType: ALL
+
+  VPCFlowLogRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: vpc-flow-logs.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: VPCFlowLogPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - logs:DescribeLogGroups
+                  - logs:DescribeLogStreams
+                Resource: !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:${AWS::StackName}-VPCFlowLogs:*"
+
+  NotebookExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: sagemaker.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/AmazonSageMakerFullAccess"
+#        - !Sub "arn:${AWS::Partition}:iam::aws:policy/AWSCloudFormationFullAccess"
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/AmazonBedrockFullAccess"
+      Policies:
+        - PolicyName: SageMakerNotebookAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sagemaker:CreatePresignedNotebookInstanceUrl
+                  - sagemaker:DescribeNotebookInstance
+                  - sagemaker:ListTags
+                  - sagemaker:StartNotebookInstance
+                  - sagemaker:StopNotebookInstance
+                  - sagemaker:ListNotebookInstances
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:sagemaker:${AWS::Region}:${AWS::AccountId}:notebook-instance/${AWS::StackName}-notebook"
+        - PolicyName: NotebookInstanceS3Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:s3:::${S3Bucket}/*"
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:s3:::${S3Bucket}"
+        - PolicyName: OpenSearchAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - aoss:APIAccessAll
+                  - aoss:UpdateCollection
+                  - aoss:BatchGetCollection
+                  - aoss:ListCollections
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - aoss:*
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:aoss:${AWS::Region}:${AWS::AccountId}:collection/${AWS::StackName}-${CollectionName}"
+                  - !Sub "arn:${AWS::Partition}:aoss:${AWS::Region}:${AWS::AccountId}:collection/${AWS::StackName}-${CollectionName}/*"
+              - Effect: Allow
+                Action:
+                  - aoss:DashboardsAccessAll
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:aoss:${AWS::Region}:${AWS::AccountId}:dashboards/default"
+        - PolicyName: SSMAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:GetParameters
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${AWS::StackName}/*"
+                  - !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${AWS::StackName}"
+        - PolicyName: VPCAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ec2:CreateNetworkInterface
+                  - ec2:CreateNetworkInterfacePermission
+                  - ec2:DeleteNetworkInterface
+                  - ec2:DeleteNetworkInterfacePermission
+                  - ec2:DescribeNetworkInterfaces
+                  - ec2:DescribeVpcs
+                  - ec2:DescribeDhcpOptions
+                  - ec2:DescribeSubnets
+                  - ec2:DescribeSecurityGroups
+                Resource: '*'
+        - PolicyName: KMSAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - kms:Decrypt
+                  - kms:DescribeKey
+                  - kms:Encrypt
+                  - kms:GenerateDataKey
+                  - kms:GenerateDataKeyWithoutPlaintext
+                  - kms:ReEncrypt*
+                Resource: !GetAtt NotebookKMSKey.Arn
+        - PolicyName: CloudWatchLogsAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - logs:DescribeLogStreams
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/sagemaker/NotebookInstances/*"
+                  - !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/sagemaker/NotebookInstances/*:log-stream:*"
+
+
+
+  # SageMaker Notebook Instance
+  NotebookInstance:
+    Type: AWS::SageMaker::NotebookInstance
+    DependsOn:
+      - NotebookExecutionRole
+    Properties:
+      NotebookInstanceName: !Sub "${AWS::StackName}-notebook"
+      InstanceType: !Ref NotebookInstanceType
+      RoleArn: !GetAtt NotebookExecutionRole.Arn
+      SubnetId: !Ref PrivateSubnet1
+      SecurityGroupIds:
+        - !Ref NotebookSecurityGroup
+      DirectInternetAccess: Disabled
+      RootAccess: Disabled
+      KmsKeyId: !GetAtt NotebookKMSKey.Arn
+      LifecycleConfigName: !GetAtt NotebookLifecycleConfig.NotebookInstanceLifecycleConfigName
+      DefaultCodeRepository: !Ref Repository
+      Tags:
+        - Key: StackName
+          Value: !Ref AWS::StackName
+      InstanceMetadataServiceConfiguration:
+        MinimumInstanceMetadataServiceVersion: 2
+
+  NotebookLifecycleConfig:
+    Type: AWS::SageMaker::NotebookInstanceLifecycleConfig
+    Properties:
+      NotebookInstanceLifecycleConfigName: !Sub "${AWS::StackName}-config"
+      OnStart:
+        - Content: !Base64 |
+            #!/bin/bash
+            set -e
+            
+            # Enable logging
+            exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
+            
+            echo "=== Starting notebook instance customization at $(date) ==="
+            
+            # First script: Set environment variables
+            # Get the Notebook ARN from metadata
+            NOTEBOOK_ARN=$(jq '.ResourceArn' /opt/ml/metadata/resource-metadata.json --raw-output)
+            
+            # Get stack name from tags
+            STACK_NAME=$(aws sagemaker list-tags --resource-arn $NOTEBOOK_ARN | jq -r '.Tags[] | select(.Key == "StackName").Value')
+            
+            # Create and populate environment file
+            sudo mkdir -p /etc/profile.d
+            
+            # Create the environment variable file
+            cat << EOF | sudo tee /etc/profile.d/jupyter-env.sh
+            export STACK_NAME=$STACK_NAME
+            EOF
+            
+            # Make it executable
+            sudo chmod 644 /etc/profile.d/jupyter-env.sh
+            
+            # Add to conda activate script to ensure it's available in all environments
+            sudo -u ec2-user mkdir -p /home/ec2-user/anaconda3/etc/conda/activate.d
+            cat << EOF | sudo -u ec2-user tee /home/ec2-user/anaconda3/etc/conda/activate.d/env_vars.sh
+            #!/bin/bash
+            export STACK_NAME=$STACK_NAME
+            EOF
+            
+            # Make it executable
+            sudo chmod 755 /home/ec2-user/anaconda3/etc/conda/activate.d/env_vars.sh
+            
+            # Source the environment file
+            source /etc/profile.d/jupyter-env.sh
+            
+            # Second script: Install packages
+            sudo -u ec2-user -i <<'EOF'
+            
+            # Define packages to install
+            PACKAGES=(
+                "pillow==11.1.0"
+                "requests-aws4auth==1.3.1"
+                "opensearch-py==2.8.0"
+                "nbimporter==0.3.4"
+            )
+            
+            # Function to get Python version for an environment
+            get_python_version() {
+                local env_path=$1
+                local python_version=$(conda run -p "$env_path" python -c "import sys; print(f'python{sys.version_info.major}.{sys.version_info.minor}')")
+                echo "$python_version"
+            }
+            
+            # Install in base environment
+            echo "Installing packages in base environment..."
+            CONDA_BASE=$(conda info --base)
+            PYTHON_VERSION=$(get_python_version "$CONDA_BASE")
+            for PACKAGE in "${PACKAGES[@]}"; do
+                pip install "$PACKAGE" --target "$CONDA_BASE/lib/$PYTHON_VERSION/site-packages/"
+            done
+            
+            # Install in all other environments except JupyterSystemEnv
+            for env in $CONDA_BASE/envs/*; do
+                env_name=$(basename "$env")
+                if [ $env_name = 'JupyterSystemEnv' ]; then
+                    continue
+                fi
+                
+                echo "Installing packages in $env_name environment..."
+                PYTHON_VERSION=$(get_python_version "$env")
+                for PACKAGE in "${PACKAGES[@]}"; do
+                    pip install "$PACKAGE" --target "$env/lib/$PYTHON_VERSION/site-packages/"
+                done
+            done
+            
+            EOF
+            
+            # Restart the Jupyter server to ensure environment variables are picked up
+            sudo systemctl restart jupyter-server
+            
+            echo "=== Completed notebook instance customization at $(date) ==="
+
+  NotebookKMSKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: KMS key for SageMaker notebook encryption
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: Enable IAM User Permissions
+            Effect: Allow
+            Principal:
+              AWS: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:root"
+            Action: kms:*
+            Resource: '*'
+          - Sid: Allow SageMaker to use the key
+            Effect: Allow
+            Principal:
+              Service: sagemaker.amazonaws.com
+            Action:
+              - kms:Decrypt
+              - kms:DescribeKey
+              - kms:Encrypt
+              - kms:GenerateDataKey*
+              - kms:ReEncrypt*
+            Resource: '*'
+
+  S3Bucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      LoggingConfiguration:
+        DestinationBucketName: !Ref LoggingBucket
+        LogFilePrefix: "s3-access-logs/"
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+
+  LoggingBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      VersioningConfiguration:
+        Status: Enabled
+
+
+  S3BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref S3Bucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowSageMakerAccess
+            Effect: Allow
+            Principal:
+              AWS: !GetAtt NotebookExecutionRole.Arn
+            Action:
+              - s3:GetObject
+              - s3:PutObject
+              - s3:DeleteObject
+              - s3:ListBucket
+            Resource:
+              - !Sub "arn:${AWS::Partition}:s3:::${S3Bucket}/*"
+              - !Sub "arn:${AWS::Partition}:s3:::${S3Bucket}"
+
+  LoggingBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref LoggingBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowLogDelivery
+            Effect: Allow
+            Principal:
+              Service: logging.s3.amazonaws.com
+            Action:
+              - s3:PutObject
+            Resource: !Sub "${LoggingBucket.Arn}/*"
+
+#  BucketCleanupRole:
+#    Type: AWS::IAM::Role
+#    Properties:
+#      AssumeRolePolicyDocument:
+#        Version: '2012-10-17'
+#        Statement:
+#          - Effect: Allow
+#            Principal:
+#              Service: lambda.amazonaws.com
+#            Action: sts:AssumeRole
+#      ManagedPolicyArns:
+#        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+#      Policies:
+#        - PolicyName: BucketCleanup
+#          PolicyDocument:
+#            Version: '2012-10-17'
+#            Statement:
+#              - Effect: Allow
+#                Action:
+#                  - s3:ListBucket
+#                  - s3:ListBucketVersions
+#                  - s3:GetBucketVersioning
+#                  - s3:DeleteObject
+#                  - s3:DeleteObjectVersion
+#                  - s3:GetObjectVersion
+#                  - s3:GetBucketPolicy
+#                  - s3:PutBucketPolicy
+#                  - s3:DeleteBucketPolicy
+#                Resource:
+#                  - !Sub "arn:${AWS::Partition}:s3:::${S3Bucket}"
+#                  - !Sub "arn:${AWS::Partition}:s3:::${S3Bucket}/*"
+#                  - !Sub "arn:${AWS::Partition}:s3:::${LoggingBucket}"
+#                  - !Sub "arn:${AWS::Partition}:s3:::${LoggingBucket}/*"
+#        - PolicyName: VPCAccess
+#          PolicyDocument:
+#            Version: '2012-10-17'
+#            Statement:
+#              - Effect: Allow
+#                Action:
+#                  - ec2:CreateNetworkInterface
+#                  - ec2:DeleteNetworkInterface
+#                  - ec2:DescribeNetworkInterfaces
+#                Resource: '*'
+
+  # Lambda function to empty buckets
+#  BucketCleanupFunction:
+#    Type: AWS::Lambda::Function
+#    Properties:
+#      Handler: index.handler
+#      Role: !GetAtt BucketCleanupRole.Arn
+##      VpcConfig:
+##        SecurityGroupIds:
+##          - !Ref NotebookSecurityGroup
+##        SubnetIds:
+##          - !Ref PrivateSubnet1
+#      ReservedConcurrentExecutions: 1
+#      Code:
+#        ZipFile: |
+#          import boto3
+#          import cfnresponse
+#          import logging
+#          from botocore.exceptions import ClientError
+#
+#          logger = logging.getLogger()
+#          logger.setLevel(logging.INFO)
+#
+#          def delete_bucket_contents(bucket_name):
+#              try:
+#                  s3 = boto3.resource('s3')
+#                  bucket = s3.Bucket(bucket_name)
+#
+#                  # Check if bucket exists and is accessible
+#                  try:
+#                      s3.meta.client.head_bucket(Bucket=bucket_name)
+#                  except ClientError:
+#                      logger.info(f"Bucket {bucket_name} does not exist or is not accessible")
+#                      return True
+#
+#                  # Delete objects and versions in batches
+#                  while True:
+#                      # Get batch of objects
+#                      version_batch = list(bucket.object_versions.limit(1000))
+#                      if not version_batch:
+#                          # Get non-versioned objects if no versions found
+#                          object_batch = list(bucket.objects.limit(1000))
+#                          if not object_batch:
+#                              break
+#
+#                          # Delete non-versioned objects
+#                          delete_keys = {'Objects': [{'Key': obj.key} for obj in object_batch]}
+#                          logger.info(f"Deleting {len(delete_keys['Objects'])} non-versioned objects")
+#                          bucket.delete_objects(Delete=delete_keys)
+#                      else:
+#                          # Delete versioned objects
+#                          delete_keys = {
+#                              'Objects': [
+#                                  {'Key': version.object_key, 'VersionId': version.id}
+#                                  for version in version_batch
+#                              ]
+#                          }
+#                          logger.info(f"Deleting {len(delete_keys['Objects'])} versioned objects")
+#                          bucket.delete_objects(Delete=delete_keys)
+#
+#                  logger.info(f"Successfully emptied bucket {bucket_name}")
+#                  return True
+#
+#              except Exception as e:
+#                  logger.error(f"Error emptying bucket {bucket_name}: {str(e)}")
+#                  return False
+#
+#          def handler(event, context):
+#              try:
+#                  logger.info(f"Received event: {event}")
+#
+#                  if event['RequestType'] in ['Delete']:
+#                      properties = event['ResourceProperties']
+#                      buckets = properties.get('Buckets', [])
+#
+#                      for bucket in buckets:
+#                          logger.info(f"Processing bucket: {bucket}")
+#                          success = delete_bucket_contents(bucket)
+#                          if not success:
+#                              error_msg = f"Failed to empty bucket {bucket}"
+#                              logger.error(error_msg)
+#                              cfnresponse.send(event, context, cfnresponse.FAILED,
+#                                             {"Error": error_msg})
+#                              return
+#
+#                      logger.info("All buckets processed successfully")
+#                      cfnresponse.send(event, context, cfnresponse.SUCCESS,
+#                                     {"Message": "Buckets emptied successfully"})
+#                  else:
+#                      logger.info(f"Request type is {event['RequestType']}, no action needed")
+#                      cfnresponse.send(event, context, cfnresponse.SUCCESS,
+#                                     {"Message": "Nothing to do"})
+#
+#              except Exception as e:
+#                  error_msg = f"Unexpected error: {str(e)}"
+#                  logger.error(error_msg)
+#                  cfnresponse.send(event, context, cfnresponse.FAILED,
+#                                 {"Error": error_msg})
+#
+#      Runtime: python3.13
+#      Timeout: 900
+#      MemorySize: 256
+
+#  # Custom resource to trigger bucket cleanup
+#  BucketCleanupTrigger:
+#    Type: Custom::BucketCleanup
+#    Properties:
+#      ServiceToken: !GetAtt BucketCleanupFunction.Arn
+#      Buckets:
+#        - !Ref S3Bucket
+#        - !Ref LoggingBucket
+
+  OpenSearchCollection:
+    Type: AWS::OpenSearchServerless::Collection
+    DependsOn:
+      - OpenSearchEncryptionPolicy
+      - OpenSearchAccessPolicy
+    Properties:
+      Name: !Sub "${AWS::StackName}-${CollectionName}"
+      Description: "OpenSearch Serverless collection"
+      Type: VECTORSEARCH
+
+#  OpenSearchSecurityGroup:
+#    Type: AWS::EC2::SecurityGroup
+#    Properties:
+#      GroupDescription: Security group for OpenSearch Serverless VPC Endpoint
+#      VpcId: !Ref VPC
+#      SecurityGroupIngress:
+#        - IpProtocol: tcp
+#          FromPort: 443
+#          ToPort: 443
+#          SourceSecurityGroupId: !Ref NotebookSecurityGroup
+#          Description: "Allow HTTPS inbound from Notebook Security Group"
+
+  OpenSearchAccessPolicy:
+    Type: AWS::OpenSearchServerless::AccessPolicy
+    Properties:
+      Name: !Sub ${AWS::StackName}-access-policy
+      Type: "data"
+      Description: "Access policy for OpenSearch Serverless collection"
+      Policy: !Sub |
+        [{
+          "Rules":[
+            {
+              "ResourceType":"collection",
+              "Resource":["collection/${AWS::StackName}-${CollectionName}"],
+              "Permission":[
+                "aoss:CreateCollectionItems",
+                "aoss:DeleteCollectionItems",
+                "aoss:UpdateCollectionItems",
+                "aoss:DescribeCollectionItems"
+              ]
+            },
+            {
+              "ResourceType":"index",
+              "Resource":["index/${AWS::StackName}-${CollectionName}/*"],
+              "Permission":[
+                "aoss:ReadDocument",
+                "aoss:WriteDocument",
+                "aoss:CreateIndex",
+                "aoss:DeleteIndex",
+                "aoss:UpdateIndex",
+                "aoss:DescribeIndex"
+              ]
+            }
+          ],
+          "Principal":["${NotebookExecutionRole.Arn}"]
+        }]
+
+  OpenSearchNetworkPolicy:
+    Type: AWS::OpenSearchServerless::SecurityPolicy
+    Properties:
+      Name: !Sub ${AWS::StackName}-network-policy
+      Type: "network"
+      Description: "Network policy for OpenSearch Serverless collection"
+      Policy: !Sub |
+        [{
+          "Rules":[
+            {
+              "ResourceType":"collection",
+              "Resource":[
+                "collection/${AWS::StackName}-${CollectionName}"
+              ]
+            }
+          ],
+          "AllowFromPublic": true
+        }]
+
+  OpenSearchEncryptionPolicy:
+    Type: AWS::OpenSearchServerless::SecurityPolicy
+    Properties:
+      Name: !Sub ${AWS::StackName}-encryption-policy
+      Type: "encryption"
+      Description: "Encryption policy for OpenSearch Serverless collection"
+      Policy: !Sub |
+        {
+          "Rules":[
+            {
+              "ResourceType":"collection",
+              "Resource":[
+                "collection/${AWS::StackName}-${CollectionName}"
+              ]
+            }
+          ],
+          "AWSOwnedKey":true
+        }
+
+  CollectionParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "/${AWS::StackName}/collection-name"
+      Type: String
+      Value: !Sub "${AWS::StackName}-${CollectionName}"
+      Description: OpenSearch Serverless Collection Name
+
+  IndexParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "/${AWS::StackName}/index-name"
+      Type: String
+      Value: !Ref IndexName
+      Description: OpenSearch Serverless Index Name
+
+  CollectionEndpointParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "/${AWS::StackName}/collection-endpoint"
+      Type: String
+      Value: !GetAtt OpenSearchCollection.CollectionEndpoint
+      Description: OpenSearch Serverless Collection Endpoint
+
+  BucketParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "/${AWS::StackName}/s3-bucket"
+      Type: String
+      Value: !Ref S3Bucket
+      Description: SSM Parameter for storing S3 bucket name
+
+
+Outputs:
+  NotebookInstanceUrl:
+    Description: URL of the SageMaker Notebook Instance
+    Value: !Sub "https://console.aws.amazon.com/sagemaker/home?region=${AWS::Region}#/notebook-instances/${AWS::StackName}-notebook"
