@@ -4,12 +4,15 @@
 
 ## Architecture:
 ![Architecture Diagram](assets/architecture.png "Architecture Diagram")
-### Deploy to AWS
-| Region                | Launch Template                                                                                                                                                                                                                                                                                                             |
-|-----------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
- | US East (N. Virginia) | [![Launch Stack](https://cdn.rawgit.com/buildkite/cloudformation-launch-stack-button-svg/master/launch-stack.svg)](https://console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/new?stackName=video-rag&templateURL=https://raw.githubusercontent.com/aws-samples/sample-video-rag/refs/heads/main/cft-video-generation-blog.yml) |
- 
+### Deployment steps:
+1. Enable [nova reels](https://us-east-1.console.aws.amazon.com/bedrock/home?region=us-east-1#/modelaccess) model via the console. Follow this [link](https://docs.aws.amazon.com/bedrock/latest/userguide/model-access-modify.html) for more info.
+2. Deploy solution via CloudFormation template by clicking one of the buttons below: 
+
+| Region                | Launch Template|
+|-----------------------|-------------------|
+ | US East (N. Virginia) | [![Launch Stack](https://cdn.rawgit.com/buildkite/cloudformation-launch-stack-button-svg/master/launch-stack.svg)](https://console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/new?stackName=my-stack&templateURL=...)|
 Note: Nova Reels is only supported in us-east-1
+3. Select the stack in [CloudFormation](https://us-east-1.console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks?filteringText=&filteringStatus=active&viewNested=true). Go to the `Outputs` tab and click on the link next to `NotebookInstanceUrl`. 
 
 
 ### Network Infrastructure
@@ -66,13 +69,3 @@ Note: Nova Reels is only supported in us-east-1
  * Madhunika Reddy Mikkili, Data & ML Engineer - Amazon Web Services Inc.
  * Seif Elharaki, Machine Learning Engineer - Amazon Web Services Inc.
  * Shuai Cao, Data Science Manager - Amazon Web Services Inc.
-
-
-## Security
-
-See [CONTRIBUTING](CONTRIBUTING.md#security-issue-notifications) for more information.
-
-## License
-
-This project is licensed under the Apache-2.0 License.
-

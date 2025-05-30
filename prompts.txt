@@ -1,0 +1,6 @@
+A tight ground-level shot capturing <object_prompt> surrounded by low fog, while <action_prompt>.
+A moody wide shot of <object_prompt> positioned near flowing smoke trails, while soft ambient lighting shifts slowly.
+A grounded cinematic shot of <object_prompt> placed in shallow water, while gentle waves reflect moving light above.
+A tight front-facing composition of <object_prompt> backlit by dancing flames in the distance, while sparks drift nearby.
+A stylized low-angle view of <object_prompt> resting on volcanic rock, while glowing heat distortions rise around it.
+A clean cinematic shot of <object_prompt> placed under falling snow, while the environment stays silent and still.
