@@ -48,13 +48,16 @@ Note: Nova Reels is only supported in us-east-1
 .
 ├── README.md
 ├── assets
-│ └── architecture.png                                    # Architecture diagram
-├── bedrock_multimodal_pipeline_step_1.ipynb              # Jupyter Notebooks 
-├── bedrock_multimodal_pipeline_step_2.ipynb
-├── bedrock_multimodal_pipeline_step_3.ipynb
-├── bedrock_multimodal_pipeline_step_4.ipynb
-├── bedrock_multimodal_pipeline_step_5-Multi.ipynb
-├── bedrock_multimodal_pipeline_step_5.ipynb
+│   ├── architecture.png                                      # Architecture diagram
+│   ├── model_access.png
+│   └── select_nova_reel.png
+├── _00_image_processing.ipynb                            # Jupyter Notebooks
+├── _01_oss_ingestion.ipynb
+├── _02_video_gen_text_only.ipynb
+├── _03_video_gen_text_image.ipynb
+├── _04_video_gen_multi.ipynb
+├── _05_inpainting.ipynb
+├── _06_video_gen_inpainting.ipynb
 ├── cft-video-generation-blog.yml                         # Cloudformation template
 ├── images/                                               # Sample images for demo purposes 
 └── requirements.txt                                      # Dependencies
