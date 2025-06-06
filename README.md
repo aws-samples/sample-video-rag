@@ -8,9 +8,9 @@
 1. Enable [nova reels](https://us-east-1.console.aws.amazon.com/bedrock/home?region=us-east-1#/modelaccess) model via the console. Follow this [link](https://docs.aws.amazon.com/bedrock/latest/userguide/model-access-modify.html) for more info.
 2. Deploy solution via CloudFormation template by clicking one of the buttons below: 
 
-| Region                | Launch Template|
-|-----------------------|-------------------|
- | US East (N. Virginia) | [![Launch Stack](https://cdn.rawgit.com/buildkite/cloudformation-launch-stack-button-svg/master/launch-stack.svg)](https://console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/new?stackName=my-stack&templateURL=...)|
+| Region                | Launch Template                                                                                                                                                                                                                                                                                                                          |
+|-----------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+ | US East (N. Virginia) | [![Launch Stack](https://cdn.rawgit.com/buildkite/cloudformation-launch-stack-button-svg/master/launch-stack.svg)](https://console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/new?stackName=video-rag&templateURL=https://aws-blogs-artifacts-public.s3.us-east-1.amazonaws.com/ML-18008/cft-video-generation-blog.yml) |
 Note: Nova Reels is only supported in us-east-1
 3. Select the stack in [CloudFormation](https://us-east-1.console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks?filteringText=&filteringStatus=active&viewNested=true). Go to the `Outputs` tab and click on the link next to `NotebookInstanceUrl`. 
 
