@@ -507,6 +507,16 @@ Resources:
             Resource:
               - !Sub "arn:${AWS::Partition}:s3:::${S3Bucket}/*"
               - !Sub "arn:${AWS::Partition}:s3:::${S3Bucket}"
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource:
+              - !Sub "arn:${AWS::Partition}:s3:::${S3Bucket}/*"
+              - !Sub "arn:${AWS::Partition}:s3:::${S3Bucket}"
+            Condition:
+              Bool:
+                aws:SecureTransport: 'false'
 
   LoggingBucketPolicy:
     Type: AWS::S3::BucketPolicy
@@ -522,6 +532,16 @@ Resources:
             Action:
               - s3:PutObject
             Resource: !Sub "${LoggingBucket.Arn}/*"
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource:
+              - !Sub "${LoggingBucket.Arn}/*"
+              - !GetAtt LoggingBucket.Arn
+            Condition:
+              Bool:
+                aws:SecureTransport: 'false'
 
   OpenSearchCollection:
     Type: AWS::OpenSearchServerless::Collection
